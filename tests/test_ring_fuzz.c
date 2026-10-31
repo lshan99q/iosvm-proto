@@ -31,14 +31,17 @@ static void fuzz_trial(uint32_t seed, uint32_t cmd_size, uint32_t ack_size, uint
     enum { N = 256 };
     static uint8_t model[N][IOSVM_ACK_WIRE_SIZE];
     size_t total = (size_t)IOSVM_RING_HDR_SIZE + cmd_size + ack_size;
-    uint8_t *mem = (uint8_t *)aligned_alloc(64, total);
+    /* C11 requires aligned_alloc's size to be a multiple of the alignment; the ring size need not
+     * be, so allocate rounded up and tell init the real size. */
+    size_t alloc = (total + 63u) & ~(size_t)63u;
+    uint8_t *mem = (uint8_t *)aligned_alloc(64, alloc);
     struct iosvm_ring ring;
     uint32_t head = 0, tail = 0;
     uint8_t salt = 0;
     uint32_t step;
 
     CHECK(mem != NULL);
-    memset(mem, 0, total);
+    memset(mem, 0, alloc);
     CHECK_EQ(iosvm_ring_init(&ring, mem, total, cmd_size), IOSVM_OK);
 
     fuzz_state = seed;

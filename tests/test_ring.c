@@ -1032,5 +1032,5 @@ void iosvm_test_ring(void)
     iosvm_run_case("ring: ack ring runs the other way", case_ack_direction);
     iosvm_run_case("ring: corrupt counters and lengths are rejected", case_corrupt);
     iosvm_run_case("ring: peek refuses records past the body or past used", case_peek_bounds);
-    iosvm_run_case("ring: differential fuzz against a FIFO model under ASan", case_fuzz);
+    iosvm_run_case("ring: differential fuzz against a FIFO model", case_fuzz);
 }

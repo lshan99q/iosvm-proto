@@ -152,6 +152,12 @@ non-zero body offset stays usable: the producer either fits the record before
 the end or publishes the gap as padding and places the record at offset 0.
 There is no `head == tail == k` state that can never accept a record.
 
+There is also no counter reset, so a record longer than
+`max(head % size, size - head % size)` cannot be placed into an empty body at
+all: it would have to straddle either the end of the body or the start of the
+next lap. Keep the largest record at or below `size / 2` and an empty ring can
+always accept it, whatever the counter position.
+
 `reserve()` returns `NULL` when the record cannot be placed now: the ring is
 full, the padding plus the record do not fit, the record is larger than the
 body, or the previous reservation has not been committed. `NULL` is flow

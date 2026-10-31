@@ -20,7 +20,7 @@ the tests.
 | `include/iosvm_ring.h`, `src/ring.c` | Single-producer/single-consumer ring primitives: `iosvm_ring_init`, `reserve`, `commit`, `peek`, `release`, `used`. |
 | `include/iosvm_codec.h`, `src/codec.c` | Little-endian wire accessors, one encoder per opcode, `iosvm_decode_one` with full validation, ack codec, `iosvm_strerror`. |
 | `include/iosvm_fake_gpu.h`, `src/fake_gpu.c` | Strict in-process interpreter: buffers and RGBA8 images in a simulated heap, byte-exact `WRITE`/`BLIT_COPY`/`BLIT_FILL`/`SCREENSHOT`, ordering and sequence checks, readback. |
-| `tests/` | 56 cases, no external framework, `--verbose` mode. |
+| `tests/` | 58 cases, no external framework, `--verbose` mode. |
 | `docs/protocol.md` | Byte layout diagrams and the versioning rule. |
 
 ## Build and test
@@ -45,7 +45,7 @@ These are the rules the code exists to enforce; the full text is at the top of
 | --- | --- | --- |
 | 1 | `cmd_head` is written only by the guest, `cmd_tail` only by the host; `ack_head` only by the host, `ack_tail` only by the guest. Neither side writes the other's counters or records. | `src/ring.c` |
 | 2 | Counters are cumulative byte offsets, not indices: they advance modulo `P = floor(2^32 / size) * size` and the body is indexed with `counter % size`, which a wrap never changes because `size` divides `P`. | `src/ring.c` |
-| 3 | `used = (head - tail) mod P`, exact while `used <= size`. `head == tail` always means empty and `used == size` means full. Capacity is not a constant: a record of `need` bytes is accepted when `used + padding + need <= size`, so a body can hold a full `size` bytes when the records line up with it. | `iosvm_ring_reserve` |
+| 3 | `used = (head - tail) mod P`, exact while `used <= size`. `head == tail` always means empty and `used == size` means full. Capacity is not a constant: a record of `need` bytes is accepted when `used + padding + need <= size`, so a body can hold a full `size` bytes when the records line up with it. There is no counter reset, so keep records at most `size / 2` long to guarantee that an empty ring always accepts one. | `iosvm_ring_reserve` |
 | 4 | A record never straddles the end of the body: the producer zeroes the tail gap, advances `head` to the next multiple of `size` and restarts at offset 0; the consumer sees the zero word and skips the same gap. A zero word is unambiguous padding because every real record starts with `IOSVM_PROTO_MAGIC`. | `reserve` / `peek` |
 | 5 | Ring bodies, records, payloads and ring counters are 8-byte aligned; every payload length is a multiple of 8. | `iosvm_gpu.h` (`_Static_assert`), `src/ring.c` |
 | 6 | Every multi-byte field is little-endian on the wire and converted explicitly. No struct is memcpy'd to or from shared memory. | `src/codec.c` |
@@ -68,7 +68,7 @@ These are the rules the code exists to enforce; the full text is at the top of
 * A strict fake GPU that refuses out-of-bounds ranges, unknown/reused handles,
   commands out of order, reserved fields that are not zero and sequence numbers
   that do not advance — and changes nothing when it refuses.
-* 56 test cases, including a 512 KiB blit round trip through the ring and the
+* 58 test cases, including a 512 KiB blit round trip through the ring and the
   interpreter with byte-identical readback, 1000 messages through a 256-byte
   ring, 40 buffers applied in order, and a 1M-step differential fuzz over five
   body sizes (three of them not powers of two).

@@ -318,7 +318,12 @@ _Static_assert(offsetof(struct iosvm_op_blit_copy, len) == 16u, "blit_copy.len")
 _Static_assert(offsetof(struct iosvm_op_blit_copy, reserved) == 20u, "blit_copy.reserved");
 _Static_assert(IOSVM_OP_BLIT_COPY_SIZE % IOSVM_PROTO_ALIGN == 0u, "blit_copy alignment");
 
-/* IOSVM_OP_BLIT_FILL: fill `len` bytes with `value` repeated (native byte order). */
+/*
+ * IOSVM_OP_BLIT_FILL: fill `len` bytes with `value` repeated. `value` is a 32-bit pattern
+ * written little-endian on the wire and expanded byte-wise in that order, so the filled bytes
+ * are identical on any host — "native byte order" would make the same record mean two
+ * different byte sequences.
+ */
 #define IOSVM_OP_BLIT_FILL_SIZE 16u
 struct iosvm_op_blit_fill {
     uint32_t dst;        /* destination handle */

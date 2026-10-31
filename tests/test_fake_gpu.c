@@ -632,6 +632,14 @@ static void case_refused_command_mutates_nothing(void)
     CHECK_EQ(iosvm_fake_gpu_readback(g_gpu, 1u, 0u, back, sizeof(back)), IOSVM_OK);
     CHECK_MEM(back, data, sizeof(back));
 
+    /* The one thing a refusal does change: its sequence number is consumed, because a seq is a
+     * stream position whether or not the command succeeded. Replaying it is an error, and the
+     * guest retries with a fresh one — which is what the rest of this case does. */
+    {
+        uint32_t refused_seq = seq - 1u;
+        CHECK_EQ(run_write(refused_seq, 1u, 0u, data, sizeof(data), &h), IOSVM_ERR_SEQ);
+    }
+
     /* The batch counter is unchanged, so the guest can still submit it. */
     w[0] = 1u;
     w[1] = 0u;

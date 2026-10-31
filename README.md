@@ -20,7 +20,7 @@ the tests.
 | `include/iosvm_ring.h`, `src/ring.c` | Single-producer/single-consumer ring primitives: `iosvm_ring_init`, `reserve`, `commit`, `peek`, `release`, `used`. |
 | `include/iosvm_codec.h`, `src/codec.c` | Little-endian wire accessors, one encoder per opcode, `iosvm_decode_one` with full validation, ack codec, `iosvm_strerror`. |
 | `include/iosvm_fake_gpu.h`, `src/fake_gpu.c` | Strict in-process interpreter: buffers and RGBA8 images in a simulated heap, byte-exact `WRITE`/`BLIT_COPY`/`BLIT_FILL`/`SCREENSHOT`, ordering and sequence checks, readback. |
-| `tests/` | 58 cases, no external framework, `--verbose` mode. |
+| `tests/` | 59 cases, no external framework, `--verbose` mode. |
 | `docs/protocol.md` | Byte layout diagrams and the versioning rule. |
 
 ## Build and test
@@ -67,8 +67,10 @@ These are the rules the code exists to enforce; the full text is at the top of
   payload length.
 * A strict fake GPU that refuses out-of-bounds ranges, unknown/reused handles,
   commands out of order, reserved fields that are not zero and sequence numbers
-  that do not advance — and changes nothing when it refuses.
-* 58 test cases, including a 512 KiB blit round trip through the ring and the
+  that do not advance. A refusal leaves resources, memory and the pending batch
+  untouched, but it does consume the sequence number: a seq is a stream position
+  whether or not the command succeeded, so a retry needs a new one.
+* 59 test cases, including a 512 KiB blit round trip through the ring and the
   interpreter with byte-identical readback, 1000 messages through a 256-byte
   ring, 40 buffers applied in order, and a 1M-step differential fuzz over five
   body sizes (three of them not powers of two).

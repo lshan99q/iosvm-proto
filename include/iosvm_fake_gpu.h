@@ -12,8 +12,11 @@
  * unknown or reused handles, commands that make no sense in the current state
  * (a SUBMIT with nothing queued, a second SUBMIT of the same batch, a
  * SCREENSHOT before any submit), and any sequence number that does not advance.
- * Every refusal returns one of the IOSVM_ERR_* codes and leaves the simulated
- * state untouched.
+ * Every refusal returns one of the IOSVM_ERR_* codes and leaves resources, memory
+ * and the pending batch untouched. One thing a refusal does consume is the
+ * sequence number: a command's seq is its position in the stream whether or not
+ * it succeeded, so a guest that wants to retry sends a new seq. Reusing a
+ * refused seq is itself an IOSVM_ERR_SEQ.
  *
  * What it does not do: no real GPU work, no tiling or swizzling (images are
  * linear RGBA8 rows), no asynchronous execution, no real fences (everything is

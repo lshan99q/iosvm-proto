@@ -446,6 +446,56 @@ static void case_wrap_padding_40(void)
 }
 
 /*
+ * Counters are cumulative modulo period = floor(2^32 / size) * size, not modulo
+ * 2^32: a body size that does not divide 2^32 (288 here) would shift
+ * `counter % size` at a plain 32-bit wrap and desynchronise the body. Drive both
+ * counters to the end of the period and across it.
+ */
+static void case_counter_wrap(void)
+{
+    static _Alignas(8) uint8_t mem[RING_MEM];
+    struct iosvm_ring ring;
+    uint8_t *body = mem + IOSVM_RING_HDR_SIZE;
+    const uint8_t *rec = NULL;
+    uint32_t period = (uint32_t)((0x100000000ull / RING_BODY) * RING_BODY);
+    uint32_t len = 0u;
+    uint8_t *slot;
+
+    /* 288 does not divide 2^32, so the period is not uint32_t's wrap point. */
+    CHECK(period < 0xffffffffu);
+    CHECK_EQ(period % RING_BODY, 0u);
+    CHECK_EQ(iosvm_ring_init(&ring, mem, sizeof(mem), RING_BODY), IOSVM_OK);
+
+    /* One unread record at the tail, with both counters near the period end. */
+    CHECK_EQ(put_submit(body + 240u, 1u, 1u), 24);
+    iosvm_put_le32(mem + IOSVM_RING_HDR_CMD_TAIL_OFF, period - 48u);
+    iosvm_put_le32(mem + IOSVM_RING_HDR_CMD_HEAD_OFF, period - 24u);
+    CHECK_EQ(iosvm_ring_used(&ring, IOSVM_RING_CMD), 24u);
+
+    CHECK_EQ(iosvm_ring_peek(&ring, IOSVM_RING_CMD, &rec, &len), IOSVM_OK);
+    CHECK(rec == body + 240u);
+    CHECK_EQ(len, 24u);
+    CHECK_EQ(iosvm_ring_release(&ring, IOSVM_RING_CMD, len), IOSVM_OK);
+    CHECK_EQ(iosvm_get_le32(mem + IOSVM_RING_HDR_CMD_TAIL_OFF), period - 24u);
+    CHECK_EQ(iosvm_ring_used(&ring, IOSVM_RING_CMD), 0u);
+
+    /* Commit across the wrap: head goes from period - 24 to 0, index 264 to 0. */
+    slot = iosvm_ring_reserve(&ring, IOSVM_RING_CMD, 24u);
+    CHECK(slot == body + 264u);
+    CHECK_EQ(put_submit(slot, 2u, 1u), 24);
+    CHECK_EQ(iosvm_ring_commit(&ring, IOSVM_RING_CMD, 24u), IOSVM_OK);
+    CHECK_EQ(iosvm_get_le32(mem + IOSVM_RING_HDR_CMD_HEAD_OFF), 0u);
+    CHECK_EQ(iosvm_ring_used(&ring, IOSVM_RING_CMD), 24u);
+
+    CHECK_EQ(iosvm_ring_peek(&ring, IOSVM_RING_CMD, &rec, &len), IOSVM_OK);
+    CHECK(rec == body + 264u);
+    CHECK_EQ(len, 24u);
+    CHECK_EQ(iosvm_ring_release(&ring, IOSVM_RING_CMD, len), IOSVM_OK);
+    CHECK_EQ(iosvm_get_le32(mem + IOSVM_RING_HDR_CMD_TAIL_OFF), 0u);
+    CHECK_EQ(iosvm_ring_used(&ring, IOSVM_RING_CMD), 0u);
+}
+
+/*
  * Wrapping must never overwrite unconsumed data. The producer may wrap while a
  * record is still unread at the end of the body, but only when the padding plus
  * the new record fit in the free bytes in front of the consumer tail.
@@ -1027,6 +1077,7 @@ void iosvm_test_ring(void)
     iosvm_run_case("ring: wrap skips zero padding", case_wrap_padding);
     iosvm_run_case("ring: 40-byte records skip padding on wrap", case_wrap_padding_40);
     iosvm_run_case("ring: wrap keeps unconsumed records intact", case_wrap_unconsumed);
+    iosvm_run_case("ring: cumulative counters wrap at the body-derived period", case_counter_wrap);
     iosvm_run_case("ring: emptied ring accepts a fitting record (wedge)", case_wedge);
     iosvm_run_case("ring: commit publishes the encoded record length", case_commit_encoded_length);
     iosvm_run_case("ring: ack ring runs the other way", case_ack_direction);

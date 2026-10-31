@@ -17,7 +17,8 @@ CPPFLAGS += -Iinclude
 DEPFLAGS := -MMD -MP
 
 SANFLAGS := -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -O1 -g \
-            -fno-omit-frame-pointer -fsanitize=address,undefined
+            -fno-omit-frame-pointer -fsanitize=address,undefined \
+            -fno-sanitize-recover=all
 
 BUILD := build
 ASAN_BUILD := $(BUILD)/asan

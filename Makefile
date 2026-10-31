@@ -28,7 +28,8 @@ TEST_SRCS := tests/main.c \
              tests/test_ring.c \
              tests/test_codec.c \
              tests/test_fake_gpu.c \
-             tests/test_integration.c
+             tests/test_integration.c \
+             tests/test_ring_fuzz.c
 
 LIB_OBJS := $(patsubst %.c,$(BUILD)/%.o,$(LIB_SRCS))
 TEST_OBJS := $(patsubst %.c,$(BUILD)/%.o,$(TEST_SRCS))

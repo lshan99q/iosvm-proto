@@ -98,6 +98,7 @@ int main(int argc, char **argv)
     iosvm_test_codec();
     iosvm_test_fake_gpu();
     iosvm_test_integration();
+    iosvm_test_ring_fuzz();
 
     printf("\n%d/%d cases passed\n", g_total_cases - g_failed_cases, g_total_cases);
     return g_failed_cases == 0 ? 0 : 1;

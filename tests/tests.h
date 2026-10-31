@@ -10,6 +10,7 @@
 #define IOSVM_TESTS_H
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -41,6 +42,7 @@ void iosvm_test_ring(void);
 void iosvm_test_codec(void);
 void iosvm_test_fake_gpu(void);
 void iosvm_test_integration(void);
+void iosvm_test_ring_fuzz(void);
 
 #define CHECK(cond)                                                                                \
     do {                                                                                           \

@@ -27,8 +27,13 @@ Constraints: the body sizes are multiples of 8, the ack body is additionally a
 multiple of 16 (acks are fixed 16-byte slots), and each body is at least 256
 bytes.
 
-`cmd_head`/`cmd_tail`/`ack_head`/`ack_tail` are **byte offsets**, not indices, and
-they wrap modulo `uint32_t`. A body is indexed with `offset % size`.
+`cmd_head`/`cmd_tail`/`ack_head`/`ack_tail` are **cumulative byte offsets**, not
+indices: a counter counts every byte that side has produced or consumed. They
+advance modulo `P = floor(2^32 / size) * size`, the largest multiple of the body
+size that fits in 32 bits (for a power-of-two body `P = 2^32`, i.e. plain
+32-bit wraparound). A body offset is `counter % size`; because `size` divides
+`P`, a counter wrap does not change it. Never compare a counter against `size`:
+only differences between the two counters are meaningful, and only modulo `P`.
 
 Writers:
 
@@ -110,32 +115,47 @@ need wrap padding.
 
 ## 4. Flow control and wrapping
 
-The consumer owns `tail`; the producer owns `head`.
+The consumer owns `tail`; the producer owns `head`. Both are cumulative, so:
 
 ```text
-used = (head - tail) mod size          full when used == size - 1
-capacity = size - 1 bytes             empty when head == tail
+used  = (head - tail) mod P     empty when used == 0 (head == tail)
+                                full  when used == size
 ```
 
-A single record is never split across the end of a body. When the remaining tail
-gap is smaller than the next record:
+Both states are representable; there is no unconditional `size - 1` reserve.
+Capacity depends on where the counters are and on the padding the next record
+needs, because a single record is never split across the end of a body. With
+`need = align8(record length)` and `gap = size - head % size`, a record is
+accepted exactly when `used + pad + need <= size`, where `pad` is `gap` when
+`need > gap` and `0` otherwise. A body can therefore hold a full `size` bytes
+when the records line up with it; the only permanent refusal is `need > size`.
+
+When the remaining tail gap is smaller than the next record:
 
 ```text
  +-------------+---------------------+
  |  records    |  zero padding       |   producer zeroes the gap and starts at 0
  +-------------+---------------------+
  ^tail         ^head                 ^size
-                  -> head becomes 0, the next record is written at offset 0
+                  -> head advances to the next multiple of size; the record starts at offset 0
 ```
 
 The consumer recognises padding because a real record always begins with
-`IOSVM_PROTO_MAGIC`; a zero word at the consumer tail means "skip to offset 0".
-The producer's free-space check also keeps the post-wrap record strictly in
-front of the consumer tail, so padding can never overwrite unread data.
+`IOSVM_PROTO_MAGIC`; a zero word at the consumer tail means "skip to the next
+multiple of the body size". The producer only wraps when the padding and the
+record fit in front of the consumer tail, so padding can never overwrite unread
+data, and the consumer never reads unpadded stale bytes. `head` advances by
+exactly the record's encoded length (`16 + payload`) plus any padding.
+
+Because the counters are cumulative, an empty ring whose counters sit at a
+non-zero body offset stays usable: the producer either fits the record before
+the end or publishes the gap as padding and places the record at offset 0.
+There is no `head == tail == k` state that can never accept a record.
 
 `reserve()` returns `NULL` when the record cannot be placed now: the ring is
-full, the tail gap is too small, or the previous reservation has not been
-committed. `NULL` is flow control, not an error.
+full, the padding plus the record do not fit, the record is larger than the
+body, or the previous reservation has not been committed. `NULL` is flow
+control, not an error.
 
 ## 5. Versioning and unknown opcodes
 

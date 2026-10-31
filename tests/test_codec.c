@@ -479,6 +479,57 @@ static void case_strerror(void)
     CHECK(strcmp(iosvm_strerror(IOSVM_OK), iosvm_strerror(IOSVM_ERR_SEQ)) != 0);
 }
 
+/*
+ * A WRITE record carries its data length twice: the envelope says how many payload bytes follow,
+ * and the payload's own header says how many of them are data (the rest is padding). They must
+ * agree. Accepting a disagreement is how a permissive decoder hands a host a length it will trust
+ * and a buffer that does not have it.
+ */
+static void build_write(uint32_t envelope_payload, uint32_t inner_len)
+{
+    CHECK_EQ(iosvm_encode_cmd_hdr(g_buf, sizeof(g_buf), IOSVM_PROTO_MAGIC, IOSVM_PROTO_VERSION,
+                                  IOSVM_OP_WRITE, 1u, envelope_payload),
+             (int32_t)IOSVM_CMD_HDR_SIZE);
+    memset(g_buf + IOSVM_CMD_HDR_SIZE, 0, envelope_payload);
+    iosvm_put_le32(g_buf + IOSVM_CMD_HDR_SIZE + offsetof(struct iosvm_op_write, len), inner_len);
+}
+
+static void case_write_length_mismatch(void)
+{
+    struct iosvm_cmd cmd;
+
+    /* Consistent: 8 data bytes need a 24-byte envelope. */
+    build_write(24u, 8u);
+    CHECK_EQ(iosvm_decode_one(g_buf, IOSVM_CMD_HDR_SIZE + 24u, &cmd),
+             (int32_t)(IOSVM_CMD_HDR_SIZE + 24u));
+
+    /* Envelope says 8 bytes of data, the payload claims 100. */
+    build_write(24u, 100u);
+    CHECK_EQ(iosvm_decode_one(g_buf, IOSVM_CMD_HDR_SIZE + 24u, &cmd), IOSVM_ERR_BOUNDS);
+
+    /* Padding rule: 7 data bytes need align8(7) = 8, so a 24-byte envelope, and 32 is two bytes too
+     * many. (len 7 with a 24-byte envelope is legal — the first version of this case had that
+     * wrong.) */
+    build_write(32u, 7u);
+    CHECK_EQ(iosvm_decode_one(g_buf, IOSVM_CMD_HDR_SIZE + 32u, &cmd), IOSVM_ERR_BOUNDS);
+
+    /* Zero-length write is not a write. */
+    build_write(24u, 0u);
+    CHECK_EQ(iosvm_decode_one(g_buf, IOSVM_CMD_HDR_SIZE + 24u, &cmd), IOSVM_ERR_BOUNDS);
+
+    /* One byte over the inline limit. */
+    build_write(24u, IOSVM_MAX_INLINE_WRITE + 1u);
+    CHECK_EQ(iosvm_decode_one(g_buf, IOSVM_CMD_HDR_SIZE + 24u, &cmd), IOSVM_ERR_BOUNDS);
+
+    /* A big envelope with a tiny inner length: refused before anything is read from it. */
+    build_write(65552u, 1u);
+    CHECK_EQ(iosvm_decode_one(g_buf, IOSVM_CMD_HDR_SIZE + 65552u, &cmd), IOSVM_ERR_BOUNDS);
+
+    /* And the largest legal one is still accepted. */
+    build_write(IOSVM_OP_WRITE_SIZE + IOSVM_MAX_INLINE_WRITE, IOSVM_MAX_INLINE_WRITE);
+    CHECK_EQ(iosvm_decode_one(g_buf, IOSVM_MAX_RECORD_SIZE, &cmd), (int32_t)IOSVM_MAX_RECORD_SIZE);
+}
+
 void iosvm_test_codec(void)
 {
     iosvm_run_case("codec: create_buffer round trip", case_create_buffer);
@@ -498,6 +549,7 @@ void iosvm_test_codec(void)
     iosvm_run_case("codec: unknown opcodes are rejected", case_unknown_op);
     iosvm_run_case("codec: misaligned payload length is rejected", case_misaligned);
     iosvm_run_case("codec: payload length must match the opcode", case_payload_length);
+    iosvm_run_case("codec: WRITE envelope and inner length must agree", case_write_length_mismatch);
     iosvm_run_case("codec: hostile length never reads past the buffer", case_hostile_length);
     iosvm_run_case("codec: encoders refuse short buffers", case_encode_capacity);
     iosvm_run_case("codec: cmd_u32 is bounds checked", case_cmd_u32_bounds);

@@ -125,21 +125,37 @@ int32_t iosvm_decode_one(const void *buf, size_t len, struct iosvm_cmd *out)
     }
 
     payload_len = iosvm_get_le32(p + IOSVM_CMD_HDR_LEN_OFF);
-    total = (size_t)payload_len + (size_t)IOSVM_CMD_HDR_SIZE;
-    if (total > len) {
+    /* Compare before adding: `payload_len + IOSVM_CMD_HDR_SIZE` can wrap on a 32-bit host. */
+    if ((size_t)payload_len > len - (size_t)IOSVM_CMD_HDR_SIZE) {
         /* The header promises more bytes than the caller has. Never read them. */
         return IOSVM_ERR_TRUNCATED;
     }
+    total = (size_t)payload_len + (size_t)IOSVM_CMD_HDR_SIZE;
     if ((payload_len % IOSVM_PROTO_ALIGN) != 0u) {
         return IOSVM_ERR_BAD_ALIGN;
     }
 
     if (op == (uint16_t)IOSVM_OP_WRITE) {
+        /*
+         * The payload is `len` bytes of data plus padding, and the envelope says how long it is.
+         * The two must agree: a host that trusts the envelope without reading `len` would read or
+         * write the wrong range, and a decoder that trusts `len` alone would let a peer promise
+         * bytes it did not send.
+         */
+        uint32_t data_len;
+
         /* At least one data byte, rounded up to the alignment. */
         if (payload_len < IOSVM_OP_WRITE_SIZE + IOSVM_PROTO_ALIGN) {
             return IOSVM_ERR_BOUNDS;
         }
         if (payload_len - IOSVM_OP_WRITE_SIZE > iosvm_align8(IOSVM_MAX_INLINE_WRITE)) {
+            return IOSVM_ERR_BOUNDS;
+        }
+        data_len = iosvm_get_le32(p + IOSVM_CMD_HDR_SIZE + offsetof(struct iosvm_op_write, len));
+        if (data_len == 0u || data_len > IOSVM_MAX_INLINE_WRITE) {
+            return IOSVM_ERR_BOUNDS;
+        }
+        if (payload_len != IOSVM_OP_WRITE_SIZE + iosvm_align8(data_len)) {
             return IOSVM_ERR_BOUNDS;
         }
     } else if (payload_len != op_payload_size(op)) {

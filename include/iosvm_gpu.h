@@ -23,16 +23,26 @@
  *   host never rewrites them in place.
  *
  * Capacity and wrapping
- *   - `cmd_head`/`cmd_tail`/`ack_head`/`ack_tail` are byte offsets into the ring
- *     body and advance modulo uint32_t. They wrap around `size` (the body size
- *     in bytes), not modulo `size - 1`; the body is indexed with `off % size`.
- *   - used == (head - tail) mod size. The ring is full when used == size - 1, so
- *     the usable capacity is size - 1 bytes and a full ring is never confused
- *     with an empty one (head == tail means empty, always).
+ *   - `cmd_head`/`cmd_tail`/`ack_head`/`ack_tail` are cumulative byte offsets:
+ *     they count every byte that side has ever produced or consumed, and they
+ *     advance modulo P = floor(2^32 / size) * size, the largest multiple of the
+ *     body size that fits in uint32_t (P == 2^32 for a power-of-two body).
+ *     They are not indices and must not be compared against `size`; a body
+ *     offset is `counter % size`, and because size divides P a counter wrap
+ *     leaves that offset unchanged. Only differences between the two counters
+ *     are meaningful.
+ *   - used == (head - tail) mod P and is exact while used <= size. head == tail
+ *     always means empty and used == size means full, so both states are
+ *     representable. There is no unconditional "capacity is size - 1" reserve:
+ *     capacity depends on where the counters are and on the padding the next
+ *     record needs. With need = align8(record length) and gap = size - head %
+ *     size, the producer accepts exactly when used + pad + need <= size, where
+ *     pad is gap when need > gap and 0 otherwise.
  *   - A record never straddles the end of the body. When the tail gap cannot
- *     hold the next record the producer zero-fills the gap and restarts at
- *     offset 0. A zero word is unambiguous padding because every real command
- *     starts with IOSVM_PROTO_MAGIC.
+ *     hold the next record the producer zero-fills the gap, advances head to the
+ *     next multiple of `size` and restarts at offset 0; the consumer sees the
+ *     zero word and skips the same gap. A zero word is unambiguous padding
+ *     because every real command starts with IOSVM_PROTO_MAGIC.
  *
  * Alignment
  *   - Ring bodies start at an 8-byte aligned address, every command starts at
@@ -132,10 +142,10 @@ enum iosvm_status {
 struct iosvm_ring_hdr {
     uint32_t magic;    /* IOSVM_PROTO_MAGIC */
     uint32_t version;  /* IOSVM_PROTO_VERSION */
-    uint32_t cmd_head; /* producer writes */
-    uint32_t cmd_tail; /* consumer writes */
-    uint32_t ack_head; /* ack producer writes */
-    uint32_t ack_tail; /* ack consumer writes */
+    uint32_t cmd_head; /* cumulative, producer writes */
+    uint32_t cmd_tail; /* cumulative, consumer writes */
+    uint32_t ack_head; /* cumulative, ack producer writes */
+    uint32_t ack_tail; /* cumulative, ack consumer writes */
     uint32_t cmd_size; /* bytes in the command body */
     uint32_t ack_size; /* bytes in the ack body */
 };
